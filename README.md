@@ -116,42 +116,7 @@ You can verify it's up by visiting `http://localhost:8000/health` or using `curl
 > configure in `backend/.env`). If you see "Models not loaded" or connection
 > refused errors, restart the AI service and ensure the model files exist.
 
----
 
-## 📂 Project Structure
-
-```
-palloti-hthon/
-├── backend/
-│   ├── server.js              # Express server with all endpoints
-│   ├── supabaseClient.js      # Supabase connection and helper functions
-│   ├── aiService.js           # AI prediction service bridge
-│   ├── package.json           # Backend dependencies
-│   ├── .env.example           # Environment variables template
-│   └── supabase/
-│       └── migrations/
-│           └── 001_initial_schema.sql  # Database schema with PostGIS
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ReportForm.jsx       # Multi-step bite report form
-│   │   │   ├── HeatMap.jsx          # Incident heatmap visualization
-│   │   │   └── HospitalLocator.jsx  # Hospital finder with maps
-│   │   ├── App.jsx            # Main application component
-│   │   ├── main.jsx           # React entry point
-│   │   └── index.css          # Global styles with Deep Forest theme
-│   ├── public/
-│   ├── index.html
-│   ├── vite.config.js
-│   ├── tailwind.config.js     # Custom color palette
-│   ├── postcss.config.js
-│   └── package.json           # Frontend dependencies
-│
-└── package.json               # Root workspace configuration
-```
-
----
 
 ## 🎨 UI Theme: "Deep Forest"
 
