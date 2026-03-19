@@ -47,14 +47,10 @@ model = None
 def load_model():
     global model, MODEL_LOADED
     try:
+        from ultralytics import YOLO
         BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         model_path = os.path.join(BASE_DIR, "models", "snake_model.pt")
-
-        m = models.mobilenet_v3_small(pretrained=False)
-        m.classifier[-1] = nn.Linear(m.classifier[-1].in_features, 2)
-        m.load_state_dict(torch.load(model_path, map_location="cpu"))
-        m.eval()
-        model = m
+        model = YOLO(model_path)
         MODEL_LOADED = True
         logger.info("✅ Model loaded successfully!")
     except Exception as e:
