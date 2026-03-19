@@ -1,6 +1,8 @@
 # Ignore node_modules
 node_modules/
-
+__pycache__/
+.env
+*.pyc
 # Environment variables
 .env
 .env.local
