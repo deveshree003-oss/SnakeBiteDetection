@@ -14,7 +14,7 @@ import io
 import numpy as np
 from typing import Optional
 import logging
-
+import os  # ← add this line
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -129,22 +129,7 @@ def predict_bite(img_tensor) -> dict:
         'is_venomous': is_venomous
     }
     
-    # TODO: Actual model prediction
-    # Example with TensorFlow:
-    # predictions = model.predict(img_array)
-    # class_idx = np.argmax(predictions[0])
-    # confidence = float(predictions[0][class_idx])
     
-    # Example with PyTorch:
-    # import torch
-    # with torch.no_grad():
-    #     img_tensor = torch.from_numpy(img_array)
-    #     predictions = model(img_tensor)
-    #     class_idx = torch.argmax(predictions).item()
-    #     confidence = float(predictions[0][class_idx])
-    
-    pass
-
 def get_recommendations(incident_type: str, severity: str, is_venomous: Optional[bool] = None) -> list:
     """
     Get emergency recommendations based on prediction
