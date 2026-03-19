@@ -6,8 +6,11 @@ import FormData from 'form-data';
  * Forwards uploaded bite images to the Python FastAPI service for CNN-based analysis
  */
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000/predict';
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL;
 
+if (!AI_SERVICE_URL) {
+  throw new Error("AI_SERVICE_URL not set 🚨");
+}
 /**
  * Send image to Python AI service for prediction
  * @param {Buffer} imageBuffer - The image file buffer
