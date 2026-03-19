@@ -78,72 +78,56 @@ def load_model():
 # UTILITY FUNCTIONS
 # ============================================================================
 
-def preprocess_image(image: Image.Image) -> np.ndarray:
-    """
-    Preprocess image for model input
-    
-    Args:
-        image: PIL Image object
-    
-    Returns:
-        Preprocessed numpy array
-    """
-    # Resize to model input size (adjust based on your model)
-    img_size = (224, 224)  # Common CNN input size
-    image = image.resize(img_size)
-    
-    # Convert to RGB if necessary
+
+    # Must match training transforms exactly
+preprocess = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    ),
+])
+
+def preprocess_image(image: Image.Image):
     if image.mode != 'RGB':
         image = image.convert('RGB')
-    
-    # Convert to numpy array
-    img_array = np.array(image)
-    
-    # Normalize pixel values (0-255 to 0-1)
-    img_array = img_array.astype(np.float32) / 255.0
-    
-    # Add batch dimension
-    img_array = np.expand_dims(img_array, axis=0)
-    
-    return img_array
-
-def predict_bite(img_array: np.ndarray) -> dict:
-    """
-    Make prediction using CNN model
-    
-    Args:
-        img_array: Preprocessed image array
-    
-    Returns:
-        Dictionary with prediction results
-    """
+    return preprocess(image).unsqueeze(0)  # add batch dim
+   
+def predict_bite(img_tensor) -> dict:
     if not MODEL_LOADED:
-        # Mock predictions for testing
-        # Replace this with actual model inference
-        logger.warning("Using mock predictions - model not loaded")
-        
-        # Simulated prediction
+        # fallback mock
         import random
-        
         incident_type = random.choice(['snake_bite', 'monkey_bite'])
         confidence = round(random.uniform(0.75, 0.98), 2)
-        
-        if incident_type == 'snake_bite':
-            is_venomous = random.choice([True, False])
-            species_list = SPECIES_MAP['snake_bite']['venomous' if is_venomous else 'non_venomous']
-            species = random.choice(species_list)
-            severity = 'severe' if is_venomous else 'moderate'
-        else:
-            species = random.choice(SPECIES_MAP['monkey_bite'])
-            severity = 'moderate'
-        
+        is_venomous = random.choice([True, False]) if incident_type == 'snake_bite' else None
+        species_list = SPECIES_MAP['snake_bite']['venomous' if is_venomous else 'non_venomous'] if incident_type == 'snake_bite' else SPECIES_MAP['monkey_bite']
         return {
             'prediction': incident_type,
             'confidence': confidence,
-            'species': species,
-            'severity': severity,
-            'is_venomous': is_venomous if incident_type == 'snake_bite' else None
+            'species': random.choice(species_list),
+            'severity': 'severe' if is_venomous else 'moderate',
+            'is_venomous': is_venomous
         }
+    
+    CLASS_NAMES = ['monkey_bite', 'snake_bite']  # alphabetical = ImageFolder order
+    with torch.no_grad():
+        outputs = model(img_tensor)
+        probs = torch.softmax(outputs, dim=1)
+        confidence, class_idx = torch.max(probs, 1)
+        incident_type = CLASS_NAMES[class_idx.item()]
+        confidence = round(confidence.item(), 2)
+
+    is_venomous = random.choice([True, False]) if incident_type == 'snake_bite' else None
+    species_list = SPECIES_MAP['snake_bite']['venomous' if is_venomous else 'non_venomous'] if incident_type == 'snake_bite' else SPECIES_MAP['monkey_bite']
+    
+    return {
+        'prediction': incident_type,
+        'confidence': confidence,
+        'species': random.choice(species_list),
+        'severity': calculate_severity(confidence, incident_type, is_venomous),
+        'is_venomous': is_venomous
+    }
     
     # TODO: Actual model prediction
     # Example with TensorFlow:
@@ -371,22 +355,17 @@ async def predict_batch(files: list[UploadFile] = File(...)):
 
 @app.on_event("startup")
 async def startup_event():
-    """Load model on startup"""
-    global MODEL_LOADED
-    
     logger.info("Starting SylvanGuard AI Service...")
-    
-    # TODO: Load your model here
-    # try:
-    #     model = load_model('path/to/model')
-    #     MODEL_LOADED = True
-    #     logger.info("Model loaded successfully")
-    # except Exception as e:
-    #     logger.error(f"Failed to load model: {e}")
-    #     MODEL_LOADED = False
-    
-    logger.warning("Running in DEMO mode - using mock predictions")
-    logger.info("AI Service ready to accept requests")
+    load_model()
+    logger.info("AI Service ready!")
+```
+
+---
+
+## Also update `requirements.txt` — uncomment torch:
+```
+torch==2.1.2
+torchvision==0.16.2
 
 # ============================================================================
 # MAIN
