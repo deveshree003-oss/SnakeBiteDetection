@@ -2,6 +2,11 @@
 SylvanGuard AI Service - Bite Detection using CNN
 FastAPI service for snake and monkey bite image classification
 """
+import os
+import io
+import logging
+from typing import Optional
+
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
@@ -10,11 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 from PIL import Image
-import io
 import numpy as np
-from typing import Optional
-import logging
-import os  # ← add this line
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,28 +31,16 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ============================================================================
-# MODEL LOADING (Replace with your actual CNN model)
+# MODEL LOADING
 # ============================================================================
 
-# TODO: Load your trained CNN model here
-# Example with TensorFlow/Keras:
-# from tensorflow import keras
-# model = keras.models.load_model('path/to/your/model.h5')
-
-# TODO: Load your PyTorch model:
-# import torch
-# model = torch.load('path/to/your/model.pth')
-# model.eval()
-
-# For now, we'll create a mock prediction function
-# Load MobileNetV3 model
 MODEL_LOADED = False
 model = None
 
@@ -59,12 +49,9 @@ def load_model():
     try:
         BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         model_path = os.path.join(BASE_DIR, "models", "snake_model.pt")
-        
-        # Rebuild same architecture used in training
+
         m = models.mobilenet_v3_small(pretrained=False)
         m.classifier[-1] = nn.Linear(m.classifier[-1].in_features, 2)
-        
-        # Load saved weights
         m.load_state_dict(torch.load(model_path, map_location="cpu"))
         m.eval()
         model = m
@@ -75,11 +62,35 @@ def load_model():
         MODEL_LOADED = False
 
 # ============================================================================
+# SPECIES MAP
+# ============================================================================
+
+SPECIES_MAP = {
+    'snake_bite': {
+        'venomous': [
+            'Indian Cobra (Naja naja)',
+            "Russell's Viper (Daboia russelii)",
+            'Common Krait (Bungarus caeruleus)',
+            'Saw-scaled Viper (Echis carinatus)',
+        ],
+        'non_venomous': [
+            'Rat Snake',
+            'Python',
+            'Garden Snake'
+        ]
+    },
+    'monkey_bite': [
+        'Rhesus Macaque',
+        'Bonnet Macaque',
+        'Langur',
+        'Unknown Primate'
+    ]
+}
+
+# ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
 
-
-    # Must match training transforms exactly
 preprocess = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -92,12 +103,12 @@ preprocess = transforms.Compose([
 def preprocess_image(image: Image.Image):
     if image.mode != 'RGB':
         image = image.convert('RGB')
-    return preprocess(image).unsqueeze(0)  # add batch dim
-   
+    return preprocess(image).unsqueeze(0)
+
+
 def predict_bite(img_tensor) -> dict:
+    import random
     if not MODEL_LOADED:
-        # fallback mock
-        import random
         incident_type = random.choice(['snake_bite', 'monkey_bite'])
         confidence = round(random.uniform(0.75, 0.98), 2)
         is_venomous = random.choice([True, False]) if incident_type == 'snake_bite' else None
@@ -109,8 +120,8 @@ def predict_bite(img_tensor) -> dict:
             'severity': 'severe' if is_venomous else 'moderate',
             'is_venomous': is_venomous
         }
-    
-    CLASS_NAMES = ['monkey_bite', 'snake_bite']  # alphabetical = ImageFolder order
+
+    CLASS_NAMES = ['monkey_bite', 'snake_bite']
     with torch.no_grad():
         outputs = model(img_tensor)
         probs = torch.softmax(outputs, dim=1)
@@ -120,7 +131,7 @@ def predict_bite(img_tensor) -> dict:
 
     is_venomous = random.choice([True, False]) if incident_type == 'snake_bite' else None
     species_list = SPECIES_MAP['snake_bite']['venomous' if is_venomous else 'non_venomous'] if incident_type == 'snake_bite' else SPECIES_MAP['monkey_bite']
-    
+
     return {
         'prediction': incident_type,
         'confidence': confidence,
@@ -128,20 +139,9 @@ def predict_bite(img_tensor) -> dict:
         'severity': calculate_severity(confidence, incident_type, is_venomous),
         'is_venomous': is_venomous
     }
-    
-    
+
+
 def get_recommendations(incident_type: str, severity: str, is_venomous: Optional[bool] = None) -> list:
-    """
-    Get emergency recommendations based on prediction
-    
-    Args:
-        incident_type: Type of bite
-        severity: Severity level
-        is_venomous: Whether snake is venomous (for snake bites)
-    
-    Returns:
-        List of recommendation strings
-    """
     if incident_type == 'snake_bite':
         if is_venomous or severity in ['severe', 'critical']:
             return [
@@ -152,7 +152,7 @@ def get_recommendations(incident_type: str, severity: str, is_venomous: Optional
                 'Clean the bite with soap and water',
                 'Cover with a clean, dry dressing',
                 'DO NOT apply ice, tourniquet, or try to suck venom',
-                'Note the snake\'s appearance for medical staff'
+                "Note the snake's appearance for medical staff"
             ]
         else:
             return [
@@ -162,7 +162,6 @@ def get_recommendations(incident_type: str, severity: str, is_venomous: Optional
                 'Seek medical evaluation to confirm non-venomous',
                 'Get a tetanus shot if not up to date'
             ]
-    
     elif incident_type == 'monkey_bite':
         return [
             '⚠️ URGENT: Rabies prophylaxis needed within 24 hours',
@@ -174,21 +173,10 @@ def get_recommendations(incident_type: str, severity: str, is_venomous: Optional
             'Report the incident to local animal control',
             'Do not delay - rabies is fatal once symptoms appear'
         ]
-    
     return []
 
+
 def calculate_severity(confidence: float, incident_type: str, is_venomous: Optional[bool] = None) -> str:
-    """
-    Calculate severity level based on prediction
-    
-    Args:
-        confidence: Model confidence score
-        incident_type: Type of bite
-        is_venomous: Whether snake is venomous
-    
-    Returns:
-        Severity level string
-    """
     if incident_type == 'snake_bite' and is_venomous:
         if confidence > 0.9:
             return 'critical'
@@ -197,7 +185,7 @@ def calculate_severity(confidence: float, incident_type: str, is_venomous: Optio
         else:
             return 'moderate'
     elif incident_type == 'monkey_bite':
-        return 'severe'  # Rabies risk
+        return 'severe'
     else:
         return 'moderate'
 
@@ -207,7 +195,6 @@ def calculate_severity(confidence: float, incident_type: str, is_venomous: Optio
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
     return {
         "service": "SylvanGuard AI",
         "status": "operational",
@@ -217,7 +204,6 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
     return {
         "status": "healthy",
         "model_loaded": MODEL_LOADED
@@ -225,50 +211,27 @@ async def health_check():
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    """
-    Predict bite type from uploaded image
-    
-    Args:
-        file: Uploaded image file
-    
-    Returns:
-        JSON with prediction results
-    """
     try:
-        # Validate file type
         if not file.content_type.startswith('image/'):
-            raise HTTPException(
-                status_code=400,
-                detail="File must be an image (JPEG, PNG, WebP)"
-            )
-        
-        # Read image file
+            raise HTTPException(status_code=400, detail="File must be an image (JPEG, PNG, WebP)")
+
         logger.info(f"Processing image: {file.filename}")
         contents = await file.read()
-        
-        # Open image with PIL
+
         try:
             image = Image.open(io.BytesIO(contents))
         except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid image file: {str(e)}"
-            )
-        
-        # Preprocess image
-        img_array = preprocess_image(image)
-        
-        # Make prediction
-        prediction_result = predict_bite(img_array)
-        
-        # Get recommendations
+            raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
+
+        img_tensor = preprocess_image(image)
+        prediction_result = predict_bite(img_tensor)
+
         recommendations = get_recommendations(
             prediction_result['prediction'],
             prediction_result['severity'],
             prediction_result.get('is_venomous')
         )
-        
-        # Prepare response
+
         response = {
             'success': True,
             'prediction': prediction_result['prediction'],
@@ -282,56 +245,33 @@ async def predict(file: UploadFile = File(...)):
                 'processed_at': str(np.datetime64('now'))
             }
         }
-        
+
         if prediction_result['prediction'] == 'snake_bite':
             response['is_venomous'] = prediction_result.get('is_venomous', False)
-        
+
         logger.info(f"Prediction completed: {prediction_result['prediction']} ({prediction_result['confidence']})")
-        
         return JSONResponse(content=response)
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Prediction error: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Prediction failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
 
 @app.post("/predict/batch")
 async def predict_batch(files: list[UploadFile] = File(...)):
-    """
-    Batch prediction for multiple images
-    
-    Args:
-        files: List of uploaded image files
-    
-    Returns:
-        JSON with list of prediction results
-    """
     if len(files) > 10:
-        raise HTTPException(
-            status_code=400,
-            detail="Maximum 10 images per batch request"
-        )
-    
+        raise HTTPException(status_code=400, detail="Maximum 10 images per batch request")
+
     results = []
-    
     for file in files:
         try:
-            # Process each file
             result = await predict(file)
-            results.append({
-                'filename': file.filename,
-                'result': result
-            })
+            results.append({'filename': file.filename, 'result': result})
         except Exception as e:
-            results.append({
-                'filename': file.filename,
-                'error': str(e)
-            })
-    
+            results.append({'filename': file.filename, 'error': str(e)})
+
     return JSONResponse(content={'results': results})
 
 # ============================================================================
@@ -343,14 +283,6 @@ async def startup_event():
     logger.info("Starting SylvanGuard AI Service...")
     load_model()
     logger.info("AI Service ready!")
-```
-
----
-
-## Also update `requirements.txt` — uncomment torch:
-```
-torch==2.1.2
-torchvision==0.16.2
 
 # ============================================================================
 # MAIN
