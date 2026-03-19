@@ -2,4 +2,4 @@ fastapi
 uvicorn[standard]
 torch
 torchvision
-pillow
+Pillow==9.5.0
