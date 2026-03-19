@@ -1,9 +1,10 @@
 """
-SylvanGuard AI Service - Bite Detection using CNN
+SylvanGuard AI Service - Bite Detection using CNN + YOLO
 FastAPI service for snake and monkey bite image classification
 """
 import os
 import io
+import pathlib
 import logging
 from typing import Optional
 
@@ -42,24 +43,46 @@ app.add_middleware(
 # ============================================================================
 
 MODEL_LOADED = False
-model = None
+yolo_model = None       # snake_model.pt  → YOLO bite detector
+snake_classifier = None # snake_model.pth → MobileNetV3 venomous/non-venomous
 
 def load_model():
-    global model, MODEL_LOADED
+    global yolo_model, snake_classifier, MODEL_LOADED
+
+    # Fix Windows paths on Linux (Render runs Linux)
+    pathlib.WindowsPath = pathlib.PosixPath
+
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    errors = []
+
+    # Load YOLO model (bite detector)
     try:
-        import pathlib
-        # Fix Windows path on Linux
-        pathlib.WindowsPath = pathlib.PosixPath
-        
         from ultralytics import YOLO
-        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        model_path = os.path.join(BASE_DIR, "models", "snake_model.pt")
-        model = YOLO(model_path)
-        MODEL_LOADED = True
-        logger.info("✅ Model loaded successfully!")
+        yolo_path = os.path.join(BASE_DIR, "models", "snake_model.pt")
+        yolo_model = YOLO(yolo_path)
+        logger.info("✅ YOLO model loaded successfully!")
     except Exception as e:
-        logger.error(f"❌ Failed to load model: {e}")
-        MODEL_LOADED = False
+        errors.append(f"YOLO: {e}")
+        logger.error(f"❌ Failed to load YOLO model: {e}")
+
+    # Load MobileNetV3 snake classifier (venomous/non-venomous)
+    try:
+        pth_path = os.path.join(BASE_DIR, "models", "snake_model.pth")
+        m = models.mobilenet_v3_small(weights=None)
+        m.classifier[3] = nn.Linear(1024, 2)
+        m.load_state_dict(torch.load(pth_path, map_location="cpu"))
+        m.eval()
+        snake_classifier = m
+        logger.info("✅ Snake classifier loaded successfully!")
+    except Exception as e:
+        errors.append(f"Classifier: {e}")
+        logger.error(f"❌ Failed to load snake classifier: {e}")
+
+    if not errors:
+        MODEL_LOADED = True
+    else:
+        logger.warning(f"Running in partial/demo mode. Errors: {errors}")
 
 # ============================================================================
 # SPECIES MAP
@@ -91,24 +114,16 @@ SPECIES_MAP = {
 # UTILITY FUNCTIONS
 # ============================================================================
 
-preprocess = transforms.Compose([
+classifier_transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    ),
 ])
 
-def preprocess_image(image: Image.Image):
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-    return preprocess(image).unsqueeze(0)
-
-
-def predict_bite(img_tensor) -> dict:
+def predict_bite(image: Image.Image) -> dict:
     import random
-    if not MODEL_LOADED:
+
+    # DEMO mode fallback
+    if not MODEL_LOADED or yolo_model is None:
         incident_type = random.choice(['snake_bite', 'monkey_bite'])
         confidence = round(random.uniform(0.75, 0.98), 2)
         is_venomous = random.choice([True, False]) if incident_type == 'snake_bite' else None
@@ -121,21 +136,47 @@ def predict_bite(img_tensor) -> dict:
             'is_venomous': is_venomous
         }
 
-    CLASS_NAMES = ['monkey_bite', 'snake_bite']
-    with torch.no_grad():
-        outputs = model(img_tensor)
-        probs = torch.softmax(outputs, dim=1)
-        confidence, class_idx = torch.max(probs, 1)
-        incident_type = CLASS_NAMES[class_idx.item()]
-        confidence = round(confidence.item(), 2)
+    # Step 1: YOLO bite detection
+    results = yolo_model.predict(source=image, conf=0.1, verbose=False)
+    detections = results[0].boxes
 
-    is_venomous = random.choice([True, False]) if incident_type == 'snake_bite' else None
-    species_list = SPECIES_MAP['snake_bite']['venomous' if is_venomous else 'non_venomous'] if incident_type == 'snake_bite' else SPECIES_MAP['monkey_bite']
+    if detections is None or len(detections) == 0:
+        return {
+            'prediction': 'no_bite_detected',
+            'confidence': 0.0,
+            'species': 'Unknown',
+            'severity': 'low',
+            'is_venomous': None
+        }
+
+    # Get highest confidence detection
+    best = max(detections, key=lambda b: float(b.conf))
+    class_name = results[0].names[int(best.cls)]
+    confidence = round(float(best.conf), 2)
+
+    # Map YOLO class to incident type
+    incident_type = 'snake_bite' if 'snake' in class_name.lower() else 'monkey_bite'
+
+    # Step 2: If snake bite, classify venomous/non-venomous
+    is_venomous = None
+    species = 'Unknown'
+
+    if incident_type == 'snake_bite' and snake_classifier is not None:
+        img_tensor = classifier_transform(image.convert('RGB')).unsqueeze(0)
+        with torch.no_grad():
+            output = snake_classifier(img_tensor)
+            probs = torch.softmax(output, dim=1)
+            clf_conf, pred = torch.max(probs, 1)
+        is_venomous = (pred.item() == 1)  # 1 = Venomous
+        species_list = SPECIES_MAP['snake_bite']['venomous' if is_venomous else 'non_venomous']
+        species = random.choice(species_list)
+    elif incident_type == 'monkey_bite':
+        species = random.choice(SPECIES_MAP['monkey_bite'])
 
     return {
         'prediction': incident_type,
         'confidence': confidence,
-        'species': random.choice(species_list),
+        'species': species,
         'severity': calculate_severity(confidence, incident_type, is_venomous),
         'is_venomous': is_venomous
     }
@@ -173,7 +214,7 @@ def get_recommendations(incident_type: str, severity: str, is_venomous: Optional
             'Report the incident to local animal control',
             'Do not delay - rabies is fatal once symptoms appear'
         ]
-    return []
+    return ['Please consult a medical professional for proper evaluation.']
 
 
 def calculate_severity(confidence: float, incident_type: str, is_venomous: Optional[bool] = None) -> str:
@@ -223,8 +264,7 @@ async def predict(file: UploadFile = File(...)):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
 
-        img_tensor = preprocess_image(image)
-        prediction_result = predict_bite(img_tensor)
+        prediction_result = predict_bite(image)
 
         recommendations = get_recommendations(
             prediction_result['prediction'],
@@ -249,7 +289,7 @@ async def predict(file: UploadFile = File(...)):
         if prediction_result['prediction'] == 'snake_bite':
             response['is_venomous'] = prediction_result.get('is_venomous', False)
 
-        logger.info(f"Prediction completed: {prediction_result['prediction']} ({prediction_result['confidence']})")
+        logger.info(f"Prediction: {prediction_result['prediction']} ({prediction_result['confidence']})")
         return JSONResponse(content=response)
 
     except HTTPException:
