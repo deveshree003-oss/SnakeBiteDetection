@@ -50,30 +50,29 @@ app.add_middleware(
 # model.eval()
 
 # For now, we'll create a mock prediction function
-MODEL_LOADED = False  # Set to True when real model is loaded
+# Load MobileNetV3 model
+MODEL_LOADED = False
+model = None
 
-# Species classifications
-SPECIES_MAP = {
-    'snake_bite': {
-        'venomous': [
-            'Indian Cobra (Naja naja)',
-            'Russell\'s Viper (Daboia russelii)',
-            'Common Krait (Bungarus caeruleus)',
-            'Saw-scaled Viper (Echis carinatus)',
-        ],
-        'non_venomous': [
-            'Rat Snake',
-            'Python',
-            'Garden Snake'
-        ]
-    },
-    'monkey_bite': [
-        'Rhesus Macaque',
-        'Bonnet Macaque',
-        'Langur',
-        'Unknown Primate'
-    ]
-}
+def load_model():
+    global model, MODEL_LOADED
+    try:
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        model_path = os.path.join(BASE_DIR, "models", "snake_model.pt")
+        
+        # Rebuild same architecture used in training
+        m = models.mobilenet_v3_small(pretrained=False)
+        m.classifier[-1] = nn.Linear(m.classifier[-1].in_features, 2)
+        
+        # Load saved weights
+        m.load_state_dict(torch.load(model_path, map_location="cpu"))
+        m.eval()
+        model = m
+        MODEL_LOADED = True
+        logger.info("✅ Model loaded successfully!")
+    except Exception as e:
+        logger.error(f"❌ Failed to load model: {e}")
+        MODEL_LOADED = False
 
 # ============================================================================
 # UTILITY FUNCTIONS
