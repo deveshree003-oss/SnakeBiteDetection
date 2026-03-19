@@ -47,6 +47,10 @@ model = None
 def load_model():
     global model, MODEL_LOADED
     try:
+        import pathlib
+        # Fix Windows path on Linux
+        pathlib.WindowsPath = pathlib.PosixPath
+        
         from ultralytics import YOLO
         BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         model_path = os.path.join(BASE_DIR, "models", "snake_model.pt")
