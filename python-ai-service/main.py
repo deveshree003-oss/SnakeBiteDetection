@@ -2,7 +2,9 @@
 SylvanGuard AI Service - Bite Detection using CNN
 FastAPI service for snake and monkey bite image classification
 """
-
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
