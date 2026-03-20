@@ -28,15 +28,27 @@ export async function predictBiteType(imageBuffer, filename, mimetype) {
         });
 
         // Send request to Python AI service
-        const response = await axios.post(AI_SERVICE_URL, formData, {
-            headers: {
-                ...formData.getHeaders(),
-                'Accept': 'application/json'
-            },
-            timeout: 30000, // 30 seconds timeout
+        let response;
+try {
+    response = await axios.post(AI_SERVICE_URL, formData, {
+        headers: { ...formData.getHeaders(), 'Accept': 'application/json' },
+        timeout: 30000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+    });
+} catch (firstError) {
+    if (firstError.response?.status === 502) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        response = await axios.post(AI_SERVICE_URL, formData, {
+            headers: { ...formData.getHeaders(), 'Accept': 'application/json' },
+            timeout: 30000,
             maxContentLength: Infinity,
             maxBodyLength: Infinity
         });
+    } else {
+        throw firstError;
+    }
+}
 
         const raw = response.data || {};
         const normalizedPrediction =
@@ -77,7 +89,7 @@ export async function predictBiteType(imageBuffer, filename, mimetype) {
             // that falls out of the range of 2xx
             return {
                 success: false,
-                error: error.response.data.detail || error.response.data.error || 'AI prediction failed',
+                error: (error.response.data && (error.response.data.detail || error.response.data.error)) || `AI service returned ${error.response.status}`,
                 statusCode: error.response.status
             };
         }
