@@ -41,11 +41,10 @@ const ImageAnalyzer = () => {
             const formData = new FormData();
             formData.append('image', image);
 
-            const response = await fetch('/api/ai/predict', {
-                method: 'POST',
-                body: formData
-            });
-
+            const response = await fetch(`${import.meta.env.VITE_API_URL}/api/ai/predict`, {
+    method: 'POST',
+    body: formData
+});
             const data = await response.json();
 
             if (!response.ok) {
